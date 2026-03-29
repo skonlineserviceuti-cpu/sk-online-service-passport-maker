@@ -81,6 +81,42 @@
           <input type="color" id="backgroundColor" value="#f5f9ff">
         </label>
 
+        <div class="row two">
+          <label class="field">
+            <span>Dress Code Style</span>
+            <select id="dressPreset">
+              <option value="off">Off (Original Dress)</option>
+              <option value="white_formal">White Formal Shirt</option>
+              <option value="black_formal">Black Formal</option>
+              <option value="navy_blazer">Navy Blazer</option>
+              <option value="light_blue_shirt">Light Blue Shirt</option>
+              <option value="olive_kurta">Olive Kurta</option>
+              <option value="maroon_blazer">Maroon Blazer</option>
+              <option value="custom">Custom Color</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Dress Color</span>
+            <input type="color" id="dressColor" value="#1f2f4a">
+          </label>
+        </div>
+
+        <label class="field">
+          <div class="field-head">
+            <span>Dress Intensity</span>
+            <b id="dressIntensityValue">55</b>
+          </div>
+          <input type="range" id="dressIntensity" min="0" max="100" step="1" value="55">
+        </label>
+
+        <label class="field">
+          <div class="field-head">
+            <span>Dress Start Y (%)</span>
+            <b id="dressStartValue">58%</b>
+          </div>
+          <input type="range" id="dressStart" min="35" max="80" step="1" value="58">
+        </label>
+
         <label class="field">
           <div class="field-head">
             <span>Face Clean</span>

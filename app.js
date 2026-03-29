@@ -9,6 +9,12 @@ const el = {
   zoomValue: document.getElementById("zoomValue"),
   backgroundMode: document.getElementById("backgroundMode"),
   backgroundColor: document.getElementById("backgroundColor"),
+  dressPreset: document.getElementById("dressPreset"),
+  dressColor: document.getElementById("dressColor"),
+  dressIntensity: document.getElementById("dressIntensity"),
+  dressIntensityValue: document.getElementById("dressIntensityValue"),
+  dressStart: document.getElementById("dressStart"),
+  dressStartValue: document.getElementById("dressStartValue"),
   faceClean: document.getElementById("faceClean"),
   faceCleanValue: document.getElementById("faceCleanValue"),
   brightness: document.getElementById("brightness"),
@@ -52,6 +58,15 @@ const PRESETS = {
 const PAPER = {
   a4: { widthMm: 210, heightMm: 297, label: "A4" },
   "4x6": { widthMm: 101.6, heightMm: 152.4, label: "4x6 inch" }
+};
+
+const DRESS_PRESETS = {
+  white_formal: { r: 239, g: 241, b: 245 },
+  black_formal: { r: 34, g: 37, b: 45 },
+  navy_blazer: { r: 29, g: 51, b: 99 },
+  light_blue_shirt: { r: 129, g: 172, b: 230 },
+  olive_kurta: { r: 95, g: 118, b: 72 },
+  maroon_blazer: { r: 112, g: 35, b: 52 }
 };
 
 const state = {
@@ -180,11 +195,17 @@ function updatePrintCountInfo() {
 
 function updateSlidersMeta() {
   el.zoomValue.textContent = `${formatFixed(toNumber(el.zoom.value, 1), 2)}x`;
+  el.dressIntensityValue.textContent = `${toNumber(el.dressIntensity.value, 55)}`;
+  el.dressStartValue.textContent = `${toNumber(el.dressStart.value, 58)}%`;
   el.faceCleanValue.textContent = `${toNumber(el.faceClean.value, 0)}`;
   el.brightnessValue.textContent = `${toNumber(el.brightness.value, 0)}`;
   el.contrastValue.textContent = `${toNumber(el.contrast.value, 0)}`;
   el.saturationValue.textContent = `${toNumber(el.saturation.value, 0)}`;
   el.sharpnessValue.textContent = `${toNumber(el.sharpness.value, 0)}`;
+}
+
+function updateDressControls() {
+  el.dressColor.disabled = el.dressPreset.value !== "custom";
 }
 
 function setPreset(name) {
@@ -241,6 +262,87 @@ function getPreparedImageCanvas() {
   return buffer;
 }
 
+function hexToRgb(hex) {
+  const cleaned = hex.replace("#", "");
+  const normalized = cleaned.length === 3
+    ? cleaned.split("").map((part) => part + part).join("")
+    : cleaned;
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function isLikelySkin(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return (
+    r > 85 &&
+    g > 40 &&
+    b > 20 &&
+    (max - min) > 15 &&
+    r > g &&
+    r > b
+  );
+}
+
+function getDressTargetColor() {
+  if (el.dressPreset.value === "custom") {
+    return hexToRgb(el.dressColor.value || "#1f2f4a");
+  }
+  return DRESS_PRESETS[el.dressPreset.value] || null;
+}
+
+function applyDressCode(canvas, canvasCtx) {
+  const target = getDressTargetColor();
+  if (!target) return;
+
+  const intensity = clamp(toNumber(el.dressIntensity.value, 55), 0, 100) / 100;
+  if (intensity <= 0) return;
+
+  const startRatio = clamp(toNumber(el.dressStart.value, 58), 35, 80) / 100;
+  const startY = Math.floor(canvas.height * startRatio);
+  const imageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const width = canvas.width;
+  const height = canvas.height;
+  const rowSpan = Math.max(1, height - startY);
+
+  for (let y = startY; y < height; y += 1) {
+    const verticalFactor = (y - startY) / rowSpan;
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4;
+      const alpha = data[idx + 3];
+      if (alpha < 10) continue;
+
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      if (isLikelySkin(r, g, b)) continue;
+
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max - min;
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum > 245 && saturation < 14) continue;
+
+      const blend = clamp(intensity * (0.58 + verticalFactor * 0.42), 0, 0.95);
+      const shade = 0.45 + (lum / 255) * 0.75;
+      const tr = clamp(target.r * shade, 0, 255);
+      const tg = clamp(target.g * shade, 0, 255);
+      const tb = clamp(target.b * shade, 0, 255);
+
+      data[idx] = clamp(r * (1 - blend) + tr * blend, 0, 255);
+      data[idx + 1] = clamp(g * (1 - blend) + tg * blend, 0, 255);
+      data[idx + 2] = clamp(b * (1 - blend) + tb * blend, 0, 255);
+    }
+  }
+
+  canvasCtx.putImageData(imageData, 0, 0);
+}
+
 function drawPhotoToCanvas(targetCanvas, targetCtx) {
   const size = getPhotoSize();
   targetCanvas.width = size.widthPx;
@@ -275,6 +377,8 @@ function drawPhotoToCanvas(targetCanvas, targetCtx) {
   targetCtx.filter = `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%)`;
   targetCtx.drawImage(prepared, x, y, drawW, drawH);
   targetCtx.restore();
+
+  applyDressCode(targetCanvas, targetCtx);
 
   const faceClean = clamp(toNumber(el.faceClean.value, 0), 0, 100);
   if (faceClean > 0) {
@@ -354,7 +458,10 @@ function renderPassport() {
 
   el.passportPlaceholder.style.display = "none";
   const unitLabel = size.unit === "mm" ? "mm" : "inch";
-  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI`;
+  const dressNote = el.dressPreset.value === "off"
+    ? "Dress: Original"
+    : `Dress: ${el.dressPreset.options[el.dressPreset.selectedIndex].text}`;
+  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI | ${dressNote}`;
   state.sheetReady = false;
 }
 
@@ -573,6 +680,10 @@ function bindEvents() {
     el.zoom,
     el.backgroundMode,
     el.backgroundColor,
+    el.dressPreset,
+    el.dressColor,
+    el.dressIntensity,
+    el.dressStart,
     el.faceClean,
     el.brightness,
     el.contrast,
@@ -582,9 +693,18 @@ function bindEvents() {
 
   repaintInputs.forEach((input) => {
     input.addEventListener("input", () => {
+      if (input === el.dressPreset) {
+        updateDressControls();
+      }
       renderPassport();
       refreshSheetPreviewLive();
     });
+  });
+
+  el.dressPreset.addEventListener("change", () => {
+    updateDressControls();
+    renderPassport();
+    refreshSheetPreviewLive();
   });
 
   [el.paper, el.gap, el.margin].forEach((input) => {
@@ -651,6 +771,7 @@ function bindEvents() {
 
 function init() {
   setPreset("india");
+  updateDressControls();
   updateSlidersMeta();
   syncCopiesControl();
   updatePrintCountInfo();

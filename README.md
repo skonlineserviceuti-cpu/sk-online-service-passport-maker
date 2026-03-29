@@ -9,6 +9,8 @@ Simple browser-based tool for creating print-ready passport photos.
 3. Pick preset size (`India`, `US`, or `Custom`) and DPI.
 4. Adjust:
    - `Zoom` + drag image to align face
+   - `Dress Code Style` (multiple presets + custom color)
+   - `Dress Intensity` and `Dress Start Y (%)`
    - `Face Clean`
    - `Brightness / Contrast / Saturation / Sharpness`
    - `Background Color`
