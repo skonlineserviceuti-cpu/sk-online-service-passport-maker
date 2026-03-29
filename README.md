@@ -9,8 +9,9 @@ Simple browser-based tool for creating print-ready passport photos.
 3. Pick preset size (`India`, `US`, or `Custom`) and DPI.
 4. Adjust:
    - `Zoom` + drag image to align face
-   - `Dress Code Style` (multiple presets + custom color)
-   - `Dress Intensity` and `Dress Start Y (%)`
+   - `Cloth Change Type` (`Full Cloth Replace` or `Basic Recolor`)
+   - `Cloth Style` (Court Shirt, Court Coat + Shirt, T-Shirt, Polo T-Shirt, etc.)
+   - `Cloth Intensity`, `Cloth Start Y (%)`, and `Cloth Width (%)`
    - `Face Clean`
    - `Brightness / Contrast / Saturation / Sharpness`
    - `Background Color`
@@ -26,5 +27,8 @@ Simple browser-based tool for creating print-ready passport photos.
 
 ## Notes
 
+- For complete outfit replacement, use `Cloth Change Type = Full Cloth Replace`.
+- Fit better karne ke liye `Cloth Start Y` (neck line) aur `Cloth Width` (shoulder spread) adjust karo.
+- Agar print preview me date/time ya page title aaye, browser print settings me `Headers and Footers` off karo.
 - For official use, always verify exact country guidelines before submission.
 - Default quality is optimized for `300 DPI`.

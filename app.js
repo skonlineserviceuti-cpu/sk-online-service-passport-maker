@@ -9,12 +9,15 @@ const el = {
   zoomValue: document.getElementById("zoomValue"),
   backgroundMode: document.getElementById("backgroundMode"),
   backgroundColor: document.getElementById("backgroundColor"),
+  dressMode: document.getElementById("dressMode"),
   dressPreset: document.getElementById("dressPreset"),
   dressColor: document.getElementById("dressColor"),
   dressIntensity: document.getElementById("dressIntensity"),
   dressIntensityValue: document.getElementById("dressIntensityValue"),
   dressStart: document.getElementById("dressStart"),
   dressStartValue: document.getElementById("dressStartValue"),
+  dressWidth: document.getElementById("dressWidth"),
+  dressWidthValue: document.getElementById("dressWidthValue"),
   faceClean: document.getElementById("faceClean"),
   faceCleanValue: document.getElementById("faceCleanValue"),
   brightness: document.getElementById("brightness"),
@@ -61,12 +64,24 @@ const PAPER = {
 };
 
 const DRESS_PRESETS = {
-  white_formal: { r: 239, g: 241, b: 245 },
-  black_formal: { r: 34, g: 37, b: 45 },
-  navy_blazer: { r: 29, g: 51, b: 99 },
-  light_blue_shirt: { r: 129, g: 172, b: 230 },
-  olive_kurta: { r: 95, g: 118, b: 72 },
-  maroon_blazer: { r: 112, g: 35, b: 52 }
+  court_shirt: { r: 240, g: 242, b: 246 },
+  court_coat_shirt: { r: 38, g: 40, b: 49 },
+  black_court_coat: { r: 24, g: 26, b: 30 },
+  tshirt_plain: { r: 61, g: 112, b: 208 },
+  polo_tshirt: { r: 41, g: 132, b: 100 },
+  denim_shirt: { r: 63, g: 98, b: 152 },
+  kurta_classic: { r: 108, g: 128, b: 80 }
+};
+
+const DRESS_STYLE_KIND = {
+  court_shirt: "shirt",
+  court_coat_shirt: "court_coat",
+  black_court_coat: "court_coat",
+  tshirt_plain: "tshirt",
+  polo_tshirt: "polo",
+  denim_shirt: "shirt",
+  kurta_classic: "kurta",
+  custom: "shirt"
 };
 
 const state = {
@@ -196,7 +211,8 @@ function updatePrintCountInfo() {
 function updateSlidersMeta() {
   el.zoomValue.textContent = `${formatFixed(toNumber(el.zoom.value, 1), 2)}x`;
   el.dressIntensityValue.textContent = `${toNumber(el.dressIntensity.value, 55)}`;
-  el.dressStartValue.textContent = `${toNumber(el.dressStart.value, 58)}%`;
+  el.dressStartValue.textContent = `${toNumber(el.dressStart.value, 50)}%`;
+  el.dressWidthValue.textContent = `${toNumber(el.dressWidth.value, 68)}%`;
   el.faceCleanValue.textContent = `${toNumber(el.faceClean.value, 0)}`;
   el.brightnessValue.textContent = `${toNumber(el.brightness.value, 0)}`;
   el.contrastValue.textContent = `${toNumber(el.contrast.value, 0)}`;
@@ -205,7 +221,12 @@ function updateSlidersMeta() {
 }
 
 function updateDressControls() {
-  el.dressColor.disabled = el.dressPreset.value !== "custom";
+  const isOff = el.dressPreset.value === "off";
+  el.dressMode.disabled = isOff;
+  el.dressColor.disabled = isOff || el.dressPreset.value !== "custom";
+  el.dressIntensity.disabled = isOff;
+  el.dressStart.disabled = isOff;
+  el.dressWidth.disabled = isOff;
 }
 
 function setPreset(name) {
@@ -278,14 +299,12 @@ function hexToRgb(hex) {
 function isLikelySkin(r, g, b) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
-  return (
-    r > 85 &&
-    g > 40 &&
-    b > 20 &&
-    (max - min) > 15 &&
-    r > g &&
-    r > b
-  );
+  if (r < 95 || g < 45 || b < 28) return false;
+  if ((max - min) < 18) return false;
+  if (r <= g || r <= b) return false;
+  const rg = r - g;
+  const rb = r - b;
+  return rg > 8 && rb > 10 && !(r > 240 && g > 210 && b > 190);
 }
 
 function getDressTargetColor() {
@@ -295,20 +314,40 @@ function getDressTargetColor() {
   return DRESS_PRESETS[el.dressPreset.value] || null;
 }
 
-function applyDressCode(canvas, canvasCtx) {
+function getDressKind() {
+  if (el.dressPreset.value === "off") return "off";
+  return DRESS_STYLE_KIND[el.dressPreset.value] || "shirt";
+}
+
+function scaleColor(color, factor) {
+  return {
+    r: clamp(Math.round(color.r * factor), 0, 255),
+    g: clamp(Math.round(color.g * factor), 0, 255),
+    b: clamp(Math.round(color.b * factor), 0, 255)
+  };
+}
+
+function colorToRgba(color, alpha = 1) {
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+function applyDressTint(canvas, canvasCtx) {
   const target = getDressTargetColor();
   if (!target) return;
 
   const intensity = clamp(toNumber(el.dressIntensity.value, 55), 0, 100) / 100;
   if (intensity <= 0) return;
 
-  const startRatio = clamp(toNumber(el.dressStart.value, 58), 35, 80) / 100;
+  const startRatio = clamp(toNumber(el.dressStart.value, 50), 35, 80) / 100;
   const startY = Math.floor(canvas.height * startRatio);
   const imageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   const width = canvas.width;
   const height = canvas.height;
   const rowSpan = Math.max(1, height - startY);
+  const centerX = width / 2;
+  const torsoHalfWidth = width * 0.43;
+  const skinProtectY = startY + Math.floor(rowSpan * 0.22);
 
   for (let y = startY; y < height; y += 1) {
     const verticalFactor = (y - startY) / rowSpan;
@@ -317,19 +356,20 @@ function applyDressCode(canvas, canvasCtx) {
       const alpha = data[idx + 3];
       if (alpha < 10) continue;
 
+      const torsoDistance = Math.abs(x - centerX) / torsoHalfWidth;
+      if (torsoDistance > 1) continue;
+
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-      if (isLikelySkin(r, g, b)) continue;
+      if (y < skinProtectY && isLikelySkin(r, g, b)) continue;
 
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const saturation = max - min;
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum > 245 && saturation < 14) continue;
+      const torsoWeight = Math.pow(1 - torsoDistance, 0.65);
+      const blend = clamp(intensity * (0.55 + verticalFactor * 0.45) * torsoWeight, 0, 0.96);
+      if (blend < 0.08) continue;
 
-      const blend = clamp(intensity * (0.58 + verticalFactor * 0.42), 0, 0.95);
-      const shade = 0.45 + (lum / 255) * 0.75;
+      const shade = 0.3 + (lum / 255) * 0.95;
       const tr = clamp(target.r * shade, 0, 255);
       const tg = clamp(target.g * shade, 0, 255);
       const tb = clamp(target.b * shade, 0, 255);
@@ -341,6 +381,209 @@ function applyDressCode(canvas, canvasCtx) {
   }
 
   canvasCtx.putImageData(imageData, 0, 0);
+}
+
+function fillShirtBody(canvas, canvasCtx, centerX, neckY, shoulderHalf, target, intensity, drawStripes = true) {
+  const bodyLeft = centerX - shoulderHalf * 1.22;
+  const bodyRight = centerX + shoulderHalf * 1.22;
+  const shoulderY = neckY + canvas.height * 0.13;
+
+  canvasCtx.save();
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX - shoulderHalf * 0.26, neckY - 2);
+  canvasCtx.quadraticCurveTo(centerX - shoulderHalf * 0.98, neckY + canvas.height * 0.04, centerX - shoulderHalf * 1.02, shoulderY);
+  canvasCtx.lineTo(bodyLeft, canvas.height);
+  canvasCtx.lineTo(bodyRight, canvas.height);
+  canvasCtx.lineTo(centerX + shoulderHalf * 1.02, shoulderY);
+  canvasCtx.quadraticCurveTo(centerX + shoulderHalf * 0.98, neckY + canvas.height * 0.04, centerX + shoulderHalf * 0.26, neckY - 2);
+  canvasCtx.closePath();
+  canvasCtx.clip();
+
+  const topColor = scaleColor(target, 0.72 + intensity * 0.25);
+  const midColor = scaleColor(target, 0.92 + intensity * 0.2);
+  const lowColor = scaleColor(target, 1.05 + intensity * 0.2);
+  const gradient = canvasCtx.createLinearGradient(centerX, neckY, centerX, canvas.height);
+  gradient.addColorStop(0, colorToRgba(topColor));
+  gradient.addColorStop(0.48, colorToRgba(midColor));
+  gradient.addColorStop(1, colorToRgba(lowColor));
+  canvasCtx.fillStyle = gradient;
+  canvasCtx.fillRect(bodyLeft, neckY - 3, bodyRight - bodyLeft, canvas.height - neckY + 4);
+
+  if (drawStripes) {
+    const stripeAlpha = clamp(0.06 + intensity * 0.12, 0.06, 0.24);
+    canvasCtx.strokeStyle = `rgba(255,255,255,${stripeAlpha})`;
+    canvasCtx.lineWidth = Math.max(1, Math.round(canvas.width * 0.003));
+    const gap = Math.max(6, Math.round(canvas.width * 0.03));
+    for (let sx = bodyLeft + gap / 2; sx <= bodyRight; sx += gap) {
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(sx, neckY + 6);
+      canvasCtx.lineTo(sx, canvas.height);
+      canvasCtx.stroke();
+    }
+  }
+  canvasCtx.restore();
+}
+
+function drawCollar(canvas, canvasCtx, centerX, neckY, shoulderHalf, kind) {
+  const collarDepth = canvas.height * 0.12;
+  const collarWidth = shoulderHalf * 0.56;
+  const collarFill = kind === "court_coat"
+    ? "rgba(241, 244, 249, 0.98)"
+    : "rgba(250, 251, 253, 0.96)";
+
+  canvasCtx.save();
+  canvasCtx.fillStyle = collarFill;
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX - 1, neckY + 1);
+  canvasCtx.lineTo(centerX - collarWidth, neckY + collarDepth * 0.75);
+  canvasCtx.lineTo(centerX - collarWidth * 0.2, neckY + collarDepth);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX + 1, neckY + 1);
+  canvasCtx.lineTo(centerX + collarWidth, neckY + collarDepth * 0.75);
+  canvasCtx.lineTo(centerX + collarWidth * 0.2, neckY + collarDepth);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+  canvasCtx.restore();
+}
+
+function drawSuitDetails(canvas, canvasCtx, centerX, neckY, shoulderHalf, target, withTie = true) {
+  const lapelColor = colorToRgba(scaleColor(target, 0.55), 0.96);
+  const innerTop = neckY + canvas.height * 0.025;
+  const lapelDepth = canvas.height * 0.24;
+
+  canvasCtx.save();
+  canvasCtx.fillStyle = lapelColor;
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX - shoulderHalf * 0.1, innerTop);
+  canvasCtx.lineTo(centerX - shoulderHalf * 0.7, innerTop + lapelDepth * 0.78);
+  canvasCtx.lineTo(centerX - shoulderHalf * 0.18, innerTop + lapelDepth);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX + shoulderHalf * 0.1, innerTop);
+  canvasCtx.lineTo(centerX + shoulderHalf * 0.7, innerTop + lapelDepth * 0.78);
+  canvasCtx.lineTo(centerX + shoulderHalf * 0.18, innerTop + lapelDepth);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+
+  if (withTie) {
+    canvasCtx.fillStyle = "rgba(25, 31, 52, 0.95)";
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(centerX, innerTop + 10);
+    canvasCtx.lineTo(centerX - shoulderHalf * 0.12, innerTop + lapelDepth * 0.58);
+    canvasCtx.lineTo(centerX + shoulderHalf * 0.12, innerTop + lapelDepth * 0.58);
+    canvasCtx.closePath();
+    canvasCtx.fill();
+
+    canvasCtx.fillRect(centerX - shoulderHalf * 0.045, innerTop + lapelDepth * 0.52, shoulderHalf * 0.09, canvas.height * 0.2);
+  }
+  canvasCtx.restore();
+}
+
+function drawTshirtNeck(canvas, canvasCtx, centerX, neckY, shoulderHalf) {
+  canvasCtx.save();
+  canvasCtx.strokeStyle = "rgba(247, 248, 252, 0.75)";
+  canvasCtx.lineWidth = Math.max(2, Math.round(canvas.width * 0.01));
+  canvasCtx.beginPath();
+  canvasCtx.arc(centerX, neckY + canvas.height * 0.05, shoulderHalf * 0.24, Math.PI * 0.08, Math.PI * 0.92);
+  canvasCtx.stroke();
+  canvasCtx.restore();
+}
+
+function drawPoloDetails(canvas, canvasCtx, centerX, neckY, shoulderHalf) {
+  drawTshirtNeck(canvas, canvasCtx, centerX, neckY, shoulderHalf);
+  const collarDepth = canvas.height * 0.1;
+  canvasCtx.save();
+  canvasCtx.fillStyle = "rgba(245, 247, 251, 0.92)";
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX - 1, neckY + 2);
+  canvasCtx.lineTo(centerX - shoulderHalf * 0.43, neckY + collarDepth * 0.7);
+  canvasCtx.lineTo(centerX - shoulderHalf * 0.08, neckY + collarDepth * 0.95);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(centerX + 1, neckY + 2);
+  canvasCtx.lineTo(centerX + shoulderHalf * 0.43, neckY + collarDepth * 0.7);
+  canvasCtx.lineTo(centerX + shoulderHalf * 0.08, neckY + collarDepth * 0.95);
+  canvasCtx.closePath();
+  canvasCtx.fill();
+
+  canvasCtx.fillRect(centerX - shoulderHalf * 0.03, neckY + collarDepth * 0.68, shoulderHalf * 0.06, canvas.height * 0.15);
+  canvasCtx.restore();
+}
+
+function drawKurtaPlacket(canvas, canvasCtx, centerX, neckY) {
+  const placketW = canvas.width * 0.04;
+  const placketH = canvas.height * 0.34;
+  const top = neckY + canvas.height * 0.045;
+  canvasCtx.save();
+  canvasCtx.fillStyle = "rgba(255,255,255,0.2)";
+  canvasCtx.fillRect(centerX - placketW / 2, top, placketW, placketH);
+  canvasCtx.fillStyle = "rgba(255,255,255,0.55)";
+  const buttonR = Math.max(1.8, canvas.width * 0.008);
+  for (let i = 0; i < 4; i += 1) {
+    const cy = top + (placketH / 5) * (i + 1);
+    canvasCtx.beginPath();
+    canvasCtx.arc(centerX, cy, buttonR, 0, Math.PI * 2);
+    canvasCtx.fill();
+  }
+  canvasCtx.restore();
+}
+
+function applyDressFullReplace(canvas, canvasCtx) {
+  const target = getDressTargetColor();
+  if (!target) return;
+
+  const intensity = clamp(toNumber(el.dressIntensity.value, 55), 0, 100) / 100;
+  if (intensity <= 0) return;
+
+  const kind = getDressKind();
+  const startRatio = clamp(toNumber(el.dressStart.value, 50), 35, 80) / 100;
+  const widthRatio = clamp(toNumber(el.dressWidth.value, 68), 48, 92) / 100;
+  const centerX = canvas.width / 2 + state.offsetX * 0.03;
+  const neckY = Math.floor(canvas.height * startRatio);
+  const shoulderHalf = canvas.width * (0.24 + widthRatio * 0.25);
+  const drawStripes = kind === "shirt" &&
+    el.dressPreset.value !== "denim_shirt" &&
+    el.dressPreset.value !== "court_shirt";
+
+  fillShirtBody(canvas, canvasCtx, centerX, neckY, shoulderHalf, target, intensity, drawStripes);
+
+  if (kind === "tshirt") {
+    drawTshirtNeck(canvas, canvasCtx, centerX, neckY, shoulderHalf);
+    return;
+  }
+
+  if (kind === "polo") {
+    drawPoloDetails(canvas, canvasCtx, centerX, neckY, shoulderHalf);
+    return;
+  }
+
+  drawCollar(canvas, canvasCtx, centerX, neckY, shoulderHalf, kind);
+
+  if (kind === "court_coat") {
+    drawSuitDetails(canvas, canvasCtx, centerX, neckY, shoulderHalf, target, false);
+    return;
+  }
+
+  if (kind === "kurta") {
+    drawKurtaPlacket(canvas, canvasCtx, centerX, neckY);
+    return;
+  }
+}
+
+function applyDressCode(canvas, canvasCtx) {
+  if (el.dressPreset.value === "off") return;
+  if (el.dressMode.value === "full") {
+    applyDressFullReplace(canvas, canvasCtx);
+    return;
+  }
+  applyDressTint(canvas, canvasCtx);
 }
 
 function drawPhotoToCanvas(targetCanvas, targetCtx) {
@@ -459,8 +702,8 @@ function renderPassport() {
   el.passportPlaceholder.style.display = "none";
   const unitLabel = size.unit === "mm" ? "mm" : "inch";
   const dressNote = el.dressPreset.value === "off"
-    ? "Dress: Original"
-    : `Dress: ${el.dressPreset.options[el.dressPreset.selectedIndex].text}`;
+    ? "Cloth: Original"
+    : `Cloth: ${el.dressPreset.options[el.dressPreset.selectedIndex].text} (${el.dressMode.value === "full" ? "Full Cloth Replace" : "Basic Recolor"})`;
   el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI | ${dressNote}`;
   state.sheetReady = false;
 }
@@ -593,32 +836,57 @@ function printSheet() {
   }
 
   const img = el.sheetCanvas.toDataURL("image/png");
-  const popup = window.open("", "_blank", "width=980,height=760");
-  if (!popup) {
-    alert("Popup blocked. Please allow popups to print.");
-    return;
-  }
+  const frame = document.createElement("iframe");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+  frame.setAttribute("aria-hidden", "true");
+  document.body.appendChild(frame);
 
-  popup.document.write(`
+  const frameDoc = frame.contentWindow.document;
+  frameDoc.open();
+  frameDoc.write(`
     <!doctype html>
     <html lang="en">
     <head>
       <meta charset="utf-8">
-      <title>Passport Sheet Print</title>
+      <title></title>
       <style>
-        body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #f0f0f0; }
-        img { width: 100%; max-width: 900px; height: auto; background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }
+        @page { margin: 0; size: auto; }
+        html, body { margin: 0; padding: 0; }
+        body { background: #fff; }
+        img { width: 100%; max-width: 100%; height: auto; display: block; }
+        @media print {
+          html, body { margin: 0 !important; padding: 0 !important; }
+        }
       </style>
     </head>
     <body>
       <img src="${img}" alt="Passport sheet">
-      <script>
-        window.onload = () => { window.print(); };
-      <\/script>
     </body>
     </html>
   `);
-  popup.document.close();
+  frameDoc.close();
+
+  const runPrint = () => {
+    frame.contentWindow.document.title = "";
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+    setTimeout(() => {
+      if (frame.parentNode) {
+        frame.parentNode.removeChild(frame);
+      }
+    }, 1500);
+  };
+
+  if (frame.contentWindow.document.readyState === "complete") {
+    setTimeout(runPrint, 120);
+  } else {
+    frame.onload = () => setTimeout(runPrint, 120);
+  }
 }
 
 function onDragStart(event) {
@@ -680,10 +948,12 @@ function bindEvents() {
     el.zoom,
     el.backgroundMode,
     el.backgroundColor,
+    el.dressMode,
     el.dressPreset,
     el.dressColor,
     el.dressIntensity,
     el.dressStart,
+    el.dressWidth,
     el.faceClean,
     el.brightness,
     el.contrast,
@@ -703,6 +973,11 @@ function bindEvents() {
 
   el.dressPreset.addEventListener("change", () => {
     updateDressControls();
+    renderPassport();
+    refreshSheetPreviewLive();
+  });
+
+  el.dressMode.addEventListener("change", () => {
     renderPassport();
     refreshSheetPreviewLive();
   });
