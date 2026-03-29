@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Passport Size Photo Maker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">Print Ready Studio</p>
+      <h1>Passport Size Photo Maker</h1>
+      <p class="subtext">Photo upload karo, size set karo, face clean karo, background update karo, aur sheet ko print-ready download karo.</p>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel controls">
+        <h2>Controls</h2>
+
+        <label class="field">
+          <span>1) Photo Upload</span>
+          <input type="file" id="photoInput" accept="image/*">
+        </label>
+
+        <div class="row two">
+          <label class="field">
+            <span>2) Preset</span>
+            <select id="preset">
+              <option value="india">India (35 x 45 mm)</option>
+              <option value="us">US (2 x 2 inch)</option>
+              <option value="schengen">Schengen (35 x 45 mm)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Unit</span>
+            <select id="unit">
+              <option value="mm">mm</option>
+              <option value="in">inch</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row three">
+          <label class="field">
+            <span>Width</span>
+            <input type="number" id="width" value="35" min="10" max="200" step="0.1">
+          </label>
+          <label class="field">
+            <span>Height</span>
+            <input type="number" id="height" value="45" min="10" max="200" step="0.1">
+          </label>
+          <label class="field">
+            <span>DPI</span>
+            <input type="number" id="dpi" value="300" min="72" max="1200" step="1">
+          </label>
+        </div>
+
+        <label class="field">
+          <div class="field-head">
+            <span>Zoom</span>
+            <b id="zoomValue">1.00x</b>
+          </div>
+          <input type="range" id="zoom" min="0.6" max="3" step="0.01" value="1.0">
+        </label>
+
+        <label class="field">
+          <span>Background Type</span>
+          <select id="backgroundMode">
+            <option value="solid">Solid Color</option>
+            <option value="transparent">Transparent PNG</option>
+          </select>
+        </label>
+
+        <div class="row two">
+          <label class="field">
+            <span>Background Color</span>
+            <input type="color" id="backgroundColor" value="#f5f9ff">
+          </label>
+          <label class="field">
+            <span>Auto Remove BG</span>
+            <select id="autoRemove">
+              <option value="off">Off</option>
+              <option value="on">On (Best for plain bg)</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <div class="field-head">
+            <span>BG Tolerance</span>
+            <b id="toleranceValue">45</b>
+          </div>
+          <input type="range" id="tolerance" min="10" max="120" step="1" value="45">
+        </label>
+
+        <label class="field">
+          <div class="field-head">
+            <span>Face Clean</span>
+            <b id="faceCleanValue">0</b>
+          </div>
+          <input type="range" id="faceClean" min="0" max="100" step="1" value="0">
+        </label>
+
+        <div class="row two">
+          <label class="field">
+            <div class="field-head">
+              <span>Brightness</span>
+              <b id="brightnessValue">0</b>
+            </div>
+            <input type="range" id="brightness" min="-40" max="40" value="0">
+          </label>
+          <label class="field">
+            <div class="field-head">
+              <span>Contrast</span>
+              <b id="contrastValue">0</b>
+            </div>
+            <input type="range" id="contrast" min="-40" max="40" value="0">
+          </label>
+        </div>
+
+        <div class="row two">
+          <label class="field">
+            <div class="field-head">
+              <span>Saturation</span>
+              <b id="saturationValue">0</b>
+            </div>
+            <input type="range" id="saturation" min="-40" max="40" value="0">
+          </label>
+          <label class="field">
+            <div class="field-head">
+              <span>Sharpness</span>
+              <b id="sharpnessValue">0</b>
+            </div>
+            <input type="range" id="sharpness" min="0" max="100" value="0">
+          </label>
+        </div>
+
+        <hr>
+
+        <h3>Print Sheet</h3>
+        <div class="row three">
+          <label class="field">
+            <span>Paper</span>
+            <select id="paper">
+              <option value="a4">A4</option>
+              <option value="4x6">4 x 6 inch</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Gap (mm)</span>
+            <input type="number" id="gap" min="0" max="30" step="0.5" value="3">
+          </label>
+          <label class="field">
+            <span>Kitni Photo Chahiye</span>
+            <select id="copiesPreset">
+              <option value="4">4</option>
+              <option value="8" selected>8</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+              <option value="20">20</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input type="number" id="copies" min="1" max="100" step="1" value="8" disabled>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="refreshBtn" class="btn ghost">Refresh Preview</button>
+          <button id="sheetBtn" class="btn strong">Generate Print Sheet</button>
+          <button id="downloadPhotoBtn" class="btn">Download Passport PNG</button>
+          <button id="downloadSheetBtn" class="btn">Download Sheet PNG</button>
+          <button id="printBtn" class="btn warn">Print Sheet</button>
+        </div>
+      </aside>
+
+      <section class="panel previews">
+        <div class="canvas-block">
+          <div class="block-head">
+            <h2>Passport Preview</h2>
+            <p>Tip: photo ko mouse se drag karke face center karo.</p>
+          </div>
+          <div class="canvas-frame">
+            <canvas id="passportCanvas"></canvas>
+            <p id="passportPlaceholder">Upload image to start preview</p>
+          </div>
+          <p id="passportMeta" class="meta"></p>
+        </div>
+
+        <div class="canvas-block">
+          <div class="block-head">
+            <h2>Sheet Preview</h2>
+            <p>A4 ya 4x6 layout auto calculate hota hai.</p>
+          </div>
+          <div class="sheet-frame">
+            <canvas id="sheetCanvas"></canvas>
+            <p id="sheetPlaceholder">Generate print sheet to preview</p>
+          </div>
+          <p id="sheetMeta" class="meta"></p>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
