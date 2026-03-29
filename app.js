@@ -9,12 +9,6 @@ const el = {
   zoomValue: document.getElementById("zoomValue"),
   backgroundMode: document.getElementById("backgroundMode"),
   backgroundColor: document.getElementById("backgroundColor"),
-  autoRemove: document.getElementById("autoRemove"),
-  photoroomApiKey: document.getElementById("photoroomApiKey"),
-  photoroomBtn: document.getElementById("photoroomBtn"),
-  apiStatus: document.getElementById("apiStatus"),
-  tolerance: document.getElementById("tolerance"),
-  toleranceValue: document.getElementById("toleranceValue"),
   faceClean: document.getElementById("faceClean"),
   faceCleanValue: document.getElementById("faceCleanValue"),
   brightness: document.getElementById("brightness"),
@@ -62,10 +56,6 @@ const PAPER = {
 
 const state = {
   image: null,
-  originalFile: null,
-  photoRoomImage: null,
-  photoRoomObjectUrl: "",
-  photoRoomBusy: false,
   offsetX: 0,
   offsetY: 0,
   startOffsetX: 0,
@@ -103,26 +93,6 @@ function toNumber(value, fallback) {
 
 function formatFixed(value, digits = 2) {
   return Number(value).toFixed(digits);
-}
-
-function revokePhotoRoomUrl() {
-  if (!state.photoRoomObjectUrl) return;
-  URL.revokeObjectURL(state.photoRoomObjectUrl);
-  state.photoRoomObjectUrl = "";
-}
-
-function resetPhotoRoomResult() {
-  revokePhotoRoomUrl();
-  state.photoRoomImage = null;
-}
-
-function loadImageFromUrl(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Could not load API result image."));
-    img.src = url;
-  });
 }
 
 function getPhotoSize() {
@@ -208,21 +178,8 @@ function updatePrintCountInfo() {
   el.printCountInfo.textContent = `Selected: ${layout.copiesRequested} | Print: ${layout.copies} | Max Fit: ${layout.maxCopies}`;
 }
 
-function updateBgControls() {
-  const mode = el.autoRemove.value;
-  const localMode = mode === "local";
-  const photoRoomMode = mode === "photoroom";
-  el.tolerance.disabled = !localMode;
-  el.photoroomApiKey.disabled = !photoRoomMode;
-  el.photoroomBtn.disabled = !photoRoomMode || !state.image || state.photoRoomBusy;
-  if (photoRoomMode && !state.photoRoomImage && !state.photoRoomBusy) {
-    el.apiStatus.textContent = "PhotoRoom mode selected. Run button dabao for high-quality remove.";
-  }
-}
-
 function updateSlidersMeta() {
   el.zoomValue.textContent = `${formatFixed(toNumber(el.zoom.value, 1), 2)}x`;
-  el.toleranceValue.textContent = `${toNumber(el.tolerance.value, 45)}`;
   el.faceCleanValue.textContent = `${toNumber(el.faceClean.value, 0)}`;
   el.brightnessValue.textContent = `${toNumber(el.brightness.value, 0)}`;
   el.contrastValue.textContent = `${toNumber(el.contrast.value, 0)}`;
@@ -243,16 +200,12 @@ function loadImageFile(file) {
   const img = new Image();
   img.onload = () => {
     state.image = img;
-    state.originalFile = file;
-    resetPhotoRoomResult();
-    el.apiStatus.textContent = "";
     state.offsetX = 0;
     state.offsetY = 0;
     state.cache.key = "";
     state.cache.canvas = null;
     el.zoom.value = "1";
     updateSlidersMeta();
-    updateBgControls();
     renderPassport();
     URL.revokeObjectURL(readerUrl);
   };
@@ -266,11 +219,8 @@ function loadImageFile(file) {
 function getPreparedImageCanvas() {
   if (!state.image) return null;
 
-  const mode = el.autoRemove.value;
-  const sourceImage = mode === "photoroom" && state.photoRoomImage ? state.photoRoomImage : state.image;
-  const removeBg = mode === "local";
-  const tolerance = clamp(toNumber(el.tolerance.value, 45), 10, 120);
-  const key = `${sourceImage.src}|${mode}|${tolerance}`;
+  const sourceImage = state.image;
+  const key = `${sourceImage.src}`;
   if (state.cache.key === key && state.cache.canvas) {
     return state.cache.canvas;
   }
@@ -286,69 +236,9 @@ function getPreparedImageCanvas() {
   const bctx = buffer.getContext("2d", { willReadFrequently: true });
   bctx.drawImage(sourceImage, 0, 0, width, height);
 
-  if (removeBg) {
-    const imgData = bctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
-    const sampleSize = clamp(Math.floor(Math.min(width, height) * 0.06), 8, 42);
-    const average = sampleCorners(data, width, height, sampleSize);
-    const feather = 24;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const dist = Math.sqrt(
-        (r - average.r) * (r - average.r) +
-        (g - average.g) * (g - average.g) +
-        (b - average.b) * (b - average.b)
-      );
-
-      if (dist <= tolerance) {
-        data[i + 3] = 0;
-      } else if (dist <= tolerance + feather) {
-        const alpha = ((dist - tolerance) / feather) * 255;
-        data[i + 3] = Math.min(data[i + 3], alpha);
-      }
-    }
-    bctx.putImageData(imgData, 0, 0);
-  }
-
   state.cache.key = key;
   state.cache.canvas = buffer;
   return buffer;
-}
-
-function sampleCorners(data, width, height, s) {
-  const zones = [
-    { x0: 0, y0: 0, x1: s, y1: s },
-    { x0: width - s, y0: 0, x1: width, y1: s },
-    { x0: 0, y0: height - s, x1: s, y1: height },
-    { x0: width - s, y0: height - s, x1: width, y1: height }
-  ];
-
-  let totalR = 0;
-  let totalG = 0;
-  let totalB = 0;
-  let count = 0;
-
-  for (const z of zones) {
-    for (let y = z.y0; y < z.y1; y += 1) {
-      for (let x = z.x0; x < z.x1; x += 1) {
-        const idx = (y * width + x) * 4;
-        totalR += data[idx];
-        totalG += data[idx + 1];
-        totalB += data[idx + 2];
-        count += 1;
-      }
-    }
-  }
-
-  if (!count) return { r: 255, g: 255, b: 255 };
-  return {
-    r: totalR / count,
-    g: totalG / count,
-    b: totalB / count
-  };
 }
 
 function drawPhotoToCanvas(targetCanvas, targetCtx) {
@@ -453,7 +343,6 @@ function renderPassport() {
   updateSlidersMeta();
   const size = drawPhotoToCanvas(el.passportCanvas, ctx.passport);
   updatePrintCountInfo();
-  updateBgControls();
 
   if (!state.image) {
     el.passportPlaceholder.style.display = "block";
@@ -465,11 +354,7 @@ function renderPassport() {
 
   el.passportPlaceholder.style.display = "none";
   const unitLabel = size.unit === "mm" ? "mm" : "inch";
-  let status = "";
-  if (el.autoRemove.value === "photoroom" && !state.photoRoomImage) {
-    status = " | PhotoRoom result pending";
-  }
-  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI${status}`;
+  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI`;
   state.sheetReady = false;
 }
 
@@ -509,9 +394,14 @@ function drawCutMarks(targetCtx, x, y, w, h, length, lineWidth) {
   targetCtx.restore();
 }
 
-function renderSheet() {
+function renderSheet(options = {}) {
+  const { silent = false } = options;
+
   if (!state.image) {
-    alert("Please upload a photo first.");
+    if (!silent) {
+      alert("Please upload a photo first.");
+    }
+    clearSheetPreview();
     return;
   }
 
@@ -520,7 +410,10 @@ function renderSheet() {
   const size = getPhotoSize();
   const layout = getSheetLayout(size);
   if (layout.maxCopies <= 0) {
-    alert("Current size/margin settings me photo fit nahi ho rahi. Margin ya photo size kam karo.");
+    if (!silent) {
+      alert("Current size/margin settings me photo fit nahi ho rahi. Margin ya photo size kam karo.");
+    }
+    clearSheetPreview();
     return;
   }
 
@@ -556,6 +449,10 @@ function syncCopiesControl() {
   const preset = el.copiesPreset.value;
   if (preset === "custom") {
     el.copies.disabled = false;
+    if (toNumber(el.copies.value, 0) < 1) {
+      el.copies.value = "1";
+    }
+    el.copies.focus();
     return;
   }
 
@@ -563,62 +460,13 @@ function syncCopiesControl() {
   el.copies.disabled = true;
 }
 
-async function runPhotoRoomRemove() {
-  if (!state.image || !state.originalFile) {
-    alert("Please upload a photo first.");
+function refreshSheetPreviewLive() {
+  updatePrintCountInfo();
+  if (!state.image) {
+    clearSheetPreview();
     return;
   }
-
-  const apiKey = (el.photoroomApiKey.value || "").trim();
-  if (!apiKey) {
-    alert("Please enter PhotoRoom API key first.");
-    return;
-  }
-
-  state.photoRoomBusy = true;
-  updateBgControls();
-  el.apiStatus.textContent = "PhotoRoom processing in progress...";
-  el.photoroomBtn.textContent = "Processing...";
-
-  try {
-    const formData = new FormData();
-    formData.append("image_file", state.originalFile, state.originalFile.name || "input.jpg");
-    formData.append("channels", "rgba");
-    formData.append("format", "PNG");
-
-    const response = await fetch("https://sdk.photoroom.com/v1/segment", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey
-      },
-      body: formData
-    });
-
-    if (!response.ok) {
-      const reason = await response.text();
-      throw new Error(`PhotoRoom API error (${response.status}): ${reason || "Unknown error"}`);
-    }
-
-    const outputBlob = await response.blob();
-    const outputUrl = URL.createObjectURL(outputBlob);
-    const outputImage = await loadImageFromUrl(outputUrl);
-
-    resetPhotoRoomResult();
-    state.photoRoomObjectUrl = outputUrl;
-    state.photoRoomImage = outputImage;
-    state.cache.key = "";
-    state.cache.canvas = null;
-
-    el.apiStatus.textContent = "PhotoRoom background remove complete.";
-    renderPassport();
-  } catch (error) {
-    el.apiStatus.textContent = "PhotoRoom call failed. Key check karo ya CORS/network allow karo.";
-    alert(error.message);
-  } finally {
-    state.photoRoomBusy = false;
-    el.photoroomBtn.textContent = "Run PhotoRoom Background Remove";
-    updateBgControls();
-  }
+  renderSheet({ silent: true });
 }
 
 function downloadCanvas(canvas, filename, type = "image/png", quality = 0.95) {
@@ -714,6 +562,7 @@ function bindEvents() {
     state.offsetX = 0;
     state.offsetY = 0;
     renderPassport();
+    refreshSheetPreviewLive();
   });
 
   const repaintInputs = [
@@ -724,8 +573,6 @@ function bindEvents() {
     el.zoom,
     el.backgroundMode,
     el.backgroundColor,
-    el.autoRemove,
-    el.tolerance,
     el.faceClean,
     el.brightness,
     el.contrast,
@@ -735,54 +582,29 @@ function bindEvents() {
 
   repaintInputs.forEach((input) => {
     input.addEventListener("input", () => {
-      if (input === el.tolerance || input === el.autoRemove) {
-        state.cache.key = "";
-        state.cache.canvas = null;
-      }
-      if (input === el.autoRemove && el.autoRemove.value !== "photoroom") {
-        el.apiStatus.textContent = "";
-      }
       renderPassport();
+      refreshSheetPreviewLive();
     });
   });
 
   [el.paper, el.gap, el.margin].forEach((input) => {
     const onSheetSettingsChanged = () => {
-      updatePrintCountInfo();
-      if (state.sheetReady) {
-        renderSheet();
-      }
+      refreshSheetPreviewLive();
     };
     input.addEventListener("input", onSheetSettingsChanged);
     input.addEventListener("change", onSheetSettingsChanged);
   });
 
-  el.autoRemove.addEventListener("change", () => {
-    state.cache.key = "";
-    state.cache.canvas = null;
-    if (el.autoRemove.value !== "photoroom") {
-      el.apiStatus.textContent = "";
-    }
-    renderPassport();
-  });
-
   el.copiesPreset.addEventListener("change", () => {
     syncCopiesControl();
-    updatePrintCountInfo();
-    if (state.sheetReady) {
-      renderSheet();
-    }
+    refreshSheetPreviewLive();
   });
 
   el.copies.addEventListener("input", () => {
-    updatePrintCountInfo();
-    if (state.sheetReady) {
-      renderSheet();
-    }
+    refreshSheetPreviewLive();
   });
-
-  el.photoroomBtn.addEventListener("click", () => {
-    runPhotoRoomRemove();
+  el.copies.addEventListener("change", () => {
+    refreshSheetPreviewLive();
   });
 
   el.refreshBtn.addEventListener("click", () => renderPassport());
@@ -821,6 +643,7 @@ function bindEvents() {
       const nextZoom = clamp(toNumber(el.zoom.value, 1) + delta, 0.6, 3);
       el.zoom.value = formatFixed(nextZoom, 2);
       renderPassport();
+      refreshSheetPreviewLive();
     },
     { passive: false }
   );
@@ -831,7 +654,6 @@ function init() {
   updateSlidersMeta();
   syncCopiesControl();
   updatePrintCountInfo();
-  updateBgControls();
   clearSheetPreview();
   bindEvents();
 }

@@ -139,7 +139,6 @@ body::after {
 
 .field input[type="number"],
 .field input[type="file"],
-.field input[type="password"],
 .field select,
 .field input[type="color"] {
   width: 100%;

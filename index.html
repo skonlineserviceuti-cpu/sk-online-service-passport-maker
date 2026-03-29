@@ -76,34 +76,9 @@
           </select>
         </label>
 
-        <div class="row two">
-          <label class="field">
-            <span>Background Color</span>
-            <input type="color" id="backgroundColor" value="#f5f9ff">
-          </label>
-          <label class="field">
-            <span>Remove BG Engine</span>
-            <select id="autoRemove">
-              <option value="off">Off</option>
-              <option value="local">Local (Best for plain bg)</option>
-              <option value="photoroom">PhotoRoom API</option>
-            </select>
-          </label>
-        </div>
-
         <label class="field">
-          <span>PhotoRoom API Key</span>
-          <input type="password" id="photoroomApiKey" placeholder="Paste your PhotoRoom API key">
-        </label>
-        <button id="photoroomBtn" class="btn ghost" type="button">Run PhotoRoom Background Remove</button>
-        <p id="apiStatus" class="meta"></p>
-
-        <label class="field">
-          <div class="field-head">
-            <span>BG Tolerance</span>
-            <b id="toleranceValue">45</b>
-          </div>
-          <input type="range" id="tolerance" min="10" max="120" step="1" value="45">
+          <span>Background Color</span>
+          <input type="color" id="backgroundColor" value="#f5f9ff">
         </label>
 
         <label class="field">
@@ -173,6 +148,9 @@
           <label class="field">
             <span>Kitni Photo Chahiye</span>
             <select id="copiesPreset">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
               <option value="4">4</option>
               <option value="8" selected>8</option>
               <option value="12">12</option>
