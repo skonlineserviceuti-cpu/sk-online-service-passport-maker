@@ -10,6 +10,9 @@ const el = {
   backgroundMode: document.getElementById("backgroundMode"),
   backgroundColor: document.getElementById("backgroundColor"),
   autoRemove: document.getElementById("autoRemove"),
+  photoroomApiKey: document.getElementById("photoroomApiKey"),
+  photoroomBtn: document.getElementById("photoroomBtn"),
+  apiStatus: document.getElementById("apiStatus"),
   tolerance: document.getElementById("tolerance"),
   toleranceValue: document.getElementById("toleranceValue"),
   faceClean: document.getElementById("faceClean"),
@@ -24,8 +27,10 @@ const el = {
   sharpnessValue: document.getElementById("sharpnessValue"),
   paper: document.getElementById("paper"),
   gap: document.getElementById("gap"),
+  margin: document.getElementById("margin"),
   copiesPreset: document.getElementById("copiesPreset"),
   copies: document.getElementById("copies"),
+  printCountInfo: document.getElementById("printCountInfo"),
   refreshBtn: document.getElementById("refreshBtn"),
   sheetBtn: document.getElementById("sheetBtn"),
   downloadPhotoBtn: document.getElementById("downloadPhotoBtn"),
@@ -57,6 +62,10 @@ const PAPER = {
 
 const state = {
   image: null,
+  originalFile: null,
+  photoRoomImage: null,
+  photoRoomObjectUrl: "",
+  photoRoomBusy: false,
   offsetX: 0,
   offsetY: 0,
   startOffsetX: 0,
@@ -79,6 +88,10 @@ function mmToPx(mm, dpi) {
   return Math.max(1, Math.round((mm / 25.4) * dpi));
 }
 
+function mmToPxOptional(mm, dpi) {
+  return Math.max(0, Math.round((mm / 25.4) * dpi));
+}
+
 function inToPx(inches, dpi) {
   return Math.max(1, Math.round(inches * dpi));
 }
@@ -90,6 +103,26 @@ function toNumber(value, fallback) {
 
 function formatFixed(value, digits = 2) {
   return Number(value).toFixed(digits);
+}
+
+function revokePhotoRoomUrl() {
+  if (!state.photoRoomObjectUrl) return;
+  URL.revokeObjectURL(state.photoRoomObjectUrl);
+  state.photoRoomObjectUrl = "";
+}
+
+function resetPhotoRoomResult() {
+  revokePhotoRoomUrl();
+  state.photoRoomImage = null;
+}
+
+function loadImageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load API result image."));
+    img.src = url;
+  });
 }
 
 function getPhotoSize() {
@@ -123,6 +156,70 @@ function getPhotoSize() {
   };
 }
 
+function getSheetLayout(size) {
+  const paper = PAPER[el.paper.value] || PAPER.a4;
+  const gapMm = clamp(toNumber(el.gap.value, 3), 0, 30);
+  const marginMm = clamp(toNumber(el.margin.value, 5), 0, 40);
+  const copiesRequested = clamp(Math.floor(toNumber(el.copies.value, 8)), 1, 100);
+
+  const sheetWidth = mmToPx(paper.widthMm, size.dpi);
+  const sheetHeight = mmToPx(paper.heightMm, size.dpi);
+  const photoW = size.widthPx;
+  const photoH = size.heightPx;
+  const gapPx = mmToPxOptional(gapMm, size.dpi);
+  const marginPx = mmToPxOptional(marginMm, size.dpi);
+
+  const availableWidth = sheetWidth - marginPx * 2;
+  const availableHeight = sheetHeight - marginPx * 2;
+  const cols = availableWidth > 0 ? Math.max(0, Math.floor((availableWidth + gapPx) / (photoW + gapPx))) : 0;
+  const rows = availableHeight > 0 ? Math.max(0, Math.floor((availableHeight + gapPx) / (photoH + gapPx))) : 0;
+  const maxCopies = cols * rows;
+  const copies = Math.min(copiesRequested, maxCopies);
+
+  return {
+    paper,
+    gapMm,
+    marginMm,
+    gapPx,
+    marginPx,
+    copiesRequested,
+    copies,
+    maxCopies,
+    sheetWidth,
+    sheetHeight,
+    photoW,
+    photoH,
+    cols,
+    rows,
+    startX: marginPx,
+    startY: marginPx
+  };
+}
+
+function updatePrintCountInfo() {
+  const size = getPhotoSize();
+  const layout = getSheetLayout(size);
+
+  if (layout.maxCopies <= 0) {
+    el.printCountInfo.textContent = "Current size/margin me 1 photo bhi fit nahi ho rahi.";
+    return;
+  }
+
+  el.printCountInfo.textContent = `Selected: ${layout.copiesRequested} | Print: ${layout.copies} | Max Fit: ${layout.maxCopies}`;
+}
+
+function updateBgControls() {
+  const mode = el.autoRemove.value;
+  const localMode = mode === "local";
+  const photoRoomMode = mode === "photoroom";
+  el.tolerance.disabled = !localMode;
+  el.photoroomApiKey.disabled = !photoRoomMode;
+  el.photoroomBtn.disabled = !photoRoomMode || !state.image || state.photoRoomBusy;
+  if (photoRoomMode && !state.photoRoomImage && !state.photoRoomBusy) {
+    el.apiStatus.textContent = "PhotoRoom mode selected. Run button dabao for high-quality remove.";
+  }
+}
+
 function updateSlidersMeta() {
   el.zoomValue.textContent = `${formatFixed(toNumber(el.zoom.value, 1), 2)}x`;
   el.toleranceValue.textContent = `${toNumber(el.tolerance.value, 45)}`;
@@ -146,12 +243,16 @@ function loadImageFile(file) {
   const img = new Image();
   img.onload = () => {
     state.image = img;
+    state.originalFile = file;
+    resetPhotoRoomResult();
+    el.apiStatus.textContent = "";
     state.offsetX = 0;
     state.offsetY = 0;
     state.cache.key = "";
     state.cache.canvas = null;
     el.zoom.value = "1";
     updateSlidersMeta();
+    updateBgControls();
     renderPassport();
     URL.revokeObjectURL(readerUrl);
   };
@@ -165,23 +266,25 @@ function loadImageFile(file) {
 function getPreparedImageCanvas() {
   if (!state.image) return null;
 
-  const removeBg = el.autoRemove.value === "on";
+  const mode = el.autoRemove.value;
+  const sourceImage = mode === "photoroom" && state.photoRoomImage ? state.photoRoomImage : state.image;
+  const removeBg = mode === "local";
   const tolerance = clamp(toNumber(el.tolerance.value, 45), 10, 120);
-  const key = `${state.image.src}|${removeBg}|${tolerance}`;
+  const key = `${sourceImage.src}|${mode}|${tolerance}`;
   if (state.cache.key === key && state.cache.canvas) {
     return state.cache.canvas;
   }
 
   const maxEdge = 1800;
-  const ratio = Math.min(1, maxEdge / Math.max(state.image.naturalWidth, state.image.naturalHeight));
-  const width = Math.max(1, Math.round(state.image.naturalWidth * ratio));
-  const height = Math.max(1, Math.round(state.image.naturalHeight * ratio));
+  const ratio = Math.min(1, maxEdge / Math.max(sourceImage.naturalWidth, sourceImage.naturalHeight));
+  const width = Math.max(1, Math.round(sourceImage.naturalWidth * ratio));
+  const height = Math.max(1, Math.round(sourceImage.naturalHeight * ratio));
 
   const buffer = document.createElement("canvas");
   buffer.width = width;
   buffer.height = height;
   const bctx = buffer.getContext("2d", { willReadFrequently: true });
-  bctx.drawImage(state.image, 0, 0, width, height);
+  bctx.drawImage(sourceImage, 0, 0, width, height);
 
   if (removeBg) {
     const imgData = bctx.getImageData(0, 0, width, height);
@@ -349,6 +452,8 @@ function applySharpen(canvas, canvasCtx, amount) {
 function renderPassport() {
   updateSlidersMeta();
   const size = drawPhotoToCanvas(el.passportCanvas, ctx.passport);
+  updatePrintCountInfo();
+  updateBgControls();
 
   if (!state.image) {
     el.passportPlaceholder.style.display = "block";
@@ -360,7 +465,11 @@ function renderPassport() {
 
   el.passportPlaceholder.style.display = "none";
   const unitLabel = size.unit === "mm" ? "mm" : "inch";
-  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI`;
+  let status = "";
+  if (el.autoRemove.value === "photoroom" && !state.photoRoomImage) {
+    status = " | PhotoRoom result pending";
+  }
+  el.passportMeta.textContent = `Size: ${formatFixed(size.widthDisplay)} x ${formatFixed(size.heightDisplay)} ${unitLabel} | ${size.widthPx} x ${size.heightPx}px @ ${size.dpi} DPI${status}`;
   state.sheetReady = false;
 }
 
@@ -409,53 +518,38 @@ function renderSheet() {
   renderPassport();
 
   const size = getPhotoSize();
-  const paper = PAPER[el.paper.value] || PAPER.a4;
-  const gapMm = clamp(toNumber(el.gap.value, 3), 0, 30);
-  const copiesRequested = clamp(Math.floor(toNumber(el.copies.value, 8)), 1, 100);
+  const layout = getSheetLayout(size);
+  if (layout.maxCopies <= 0) {
+    alert("Current size/margin settings me photo fit nahi ho rahi. Margin ya photo size kam karo.");
+    return;
+  }
 
-  const sheetWidth = mmToPx(paper.widthMm, size.dpi);
-  const sheetHeight = mmToPx(paper.heightMm, size.dpi);
-  el.sheetCanvas.width = sheetWidth;
-  el.sheetCanvas.height = sheetHeight;
+  el.sheetCanvas.width = layout.sheetWidth;
+  el.sheetCanvas.height = layout.sheetHeight;
 
   ctx.sheet.fillStyle = "#ffffff";
-  ctx.sheet.fillRect(0, 0, sheetWidth, sheetHeight);
-
-  const photoW = el.passportCanvas.width;
-  const photoH = el.passportCanvas.height;
-  const gapPx = mmToPx(gapMm, size.dpi);
-  const cols = Math.max(1, Math.floor((sheetWidth + gapPx) / (photoW + gapPx)));
-  const rows = Math.max(1, Math.floor((sheetHeight + gapPx) / (photoH + gapPx)));
-  const maxCopies = cols * rows;
-  const copies = Math.min(copiesRequested, maxCopies);
-
-  const usedCols = Math.min(cols, copies);
-  const usedRows = Math.ceil(copies / cols);
-  const contentWidth = usedCols * photoW + (usedCols - 1) * gapPx;
-  const contentHeight = usedRows * photoH + (usedRows - 1) * gapPx;
-  const startX = Math.floor((sheetWidth - contentWidth) / 2);
-  const startY = Math.floor((sheetHeight - contentHeight) / 2);
+  ctx.sheet.fillRect(0, 0, layout.sheetWidth, layout.sheetHeight);
 
   let drawn = 0;
   const cutLine = Math.max(1, Math.round(size.dpi / 220));
   const markLength = Math.max(8, Math.round(size.dpi / 22));
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      if (drawn >= copies) break;
-      const x = startX + col * (photoW + gapPx);
-      const y = startY + row * (photoH + gapPx);
-      ctx.sheet.drawImage(el.passportCanvas, x, y, photoW, photoH);
+  for (let row = 0; row < layout.rows; row += 1) {
+    for (let col = 0; col < layout.cols; col += 1) {
+      if (drawn >= layout.copies) break;
+      const x = layout.startX + col * (layout.photoW + layout.gapPx);
+      const y = layout.startY + row * (layout.photoH + layout.gapPx);
+      ctx.sheet.drawImage(el.passportCanvas, x, y, layout.photoW, layout.photoH);
       ctx.sheet.strokeStyle = "rgba(31, 43, 47, 0.18)";
       ctx.sheet.lineWidth = cutLine;
-      ctx.sheet.strokeRect(x, y, photoW, photoH);
-      drawCutMarks(ctx.sheet, x, y, photoW, photoH, markLength, cutLine);
+      ctx.sheet.strokeRect(x, y, layout.photoW, layout.photoH);
+      drawCutMarks(ctx.sheet, x, y, layout.photoW, layout.photoH, markLength, cutLine);
       drawn += 1;
     }
   }
 
   state.sheetReady = true;
   el.sheetPlaceholder.style.display = "none";
-  el.sheetMeta.textContent = `${paper.label} sheet | Copies: ${copies}/${maxCopies} | Gap: ${formatFixed(gapMm, 1)} mm | ${sheetWidth} x ${sheetHeight}px @ ${size.dpi} DPI`;
+  el.sheetMeta.textContent = `${layout.paper.label} sheet | Copies: ${layout.copies}/${layout.maxCopies} | Gap: ${formatFixed(layout.gapMm, 1)} mm | Margin: ${formatFixed(layout.marginMm, 1)} mm | ${layout.sheetWidth} x ${layout.sheetHeight}px @ ${size.dpi} DPI`;
 }
 
 function syncCopiesControl() {
@@ -467,6 +561,64 @@ function syncCopiesControl() {
 
   el.copies.value = preset;
   el.copies.disabled = true;
+}
+
+async function runPhotoRoomRemove() {
+  if (!state.image || !state.originalFile) {
+    alert("Please upload a photo first.");
+    return;
+  }
+
+  const apiKey = (el.photoroomApiKey.value || "").trim();
+  if (!apiKey) {
+    alert("Please enter PhotoRoom API key first.");
+    return;
+  }
+
+  state.photoRoomBusy = true;
+  updateBgControls();
+  el.apiStatus.textContent = "PhotoRoom processing in progress...";
+  el.photoroomBtn.textContent = "Processing...";
+
+  try {
+    const formData = new FormData();
+    formData.append("image_file", state.originalFile, state.originalFile.name || "input.jpg");
+    formData.append("channels", "rgba");
+    formData.append("format", "PNG");
+
+    const response = await fetch("https://sdk.photoroom.com/v1/segment", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const reason = await response.text();
+      throw new Error(`PhotoRoom API error (${response.status}): ${reason || "Unknown error"}`);
+    }
+
+    const outputBlob = await response.blob();
+    const outputUrl = URL.createObjectURL(outputBlob);
+    const outputImage = await loadImageFromUrl(outputUrl);
+
+    resetPhotoRoomResult();
+    state.photoRoomObjectUrl = outputUrl;
+    state.photoRoomImage = outputImage;
+    state.cache.key = "";
+    state.cache.canvas = null;
+
+    el.apiStatus.textContent = "PhotoRoom background remove complete.";
+    renderPassport();
+  } catch (error) {
+    el.apiStatus.textContent = "PhotoRoom call failed. Key check karo ya CORS/network allow karo.";
+    alert(error.message);
+  } finally {
+    state.photoRoomBusy = false;
+    el.photoroomBtn.textContent = "Run PhotoRoom Background Remove";
+    updateBgControls();
+  }
 }
 
 function downloadCanvas(canvas, filename, type = "image/png", quality = 0.95) {
@@ -587,21 +739,50 @@ function bindEvents() {
         state.cache.key = "";
         state.cache.canvas = null;
       }
+      if (input === el.autoRemove && el.autoRemove.value !== "photoroom") {
+        el.apiStatus.textContent = "";
+      }
       renderPassport();
     });
   });
 
+  [el.paper, el.gap, el.margin].forEach((input) => {
+    const onSheetSettingsChanged = () => {
+      updatePrintCountInfo();
+      if (state.sheetReady) {
+        renderSheet();
+      }
+    };
+    input.addEventListener("input", onSheetSettingsChanged);
+    input.addEventListener("change", onSheetSettingsChanged);
+  });
+
+  el.autoRemove.addEventListener("change", () => {
+    state.cache.key = "";
+    state.cache.canvas = null;
+    if (el.autoRemove.value !== "photoroom") {
+      el.apiStatus.textContent = "";
+    }
+    renderPassport();
+  });
+
   el.copiesPreset.addEventListener("change", () => {
     syncCopiesControl();
+    updatePrintCountInfo();
     if (state.sheetReady) {
       renderSheet();
     }
   });
 
   el.copies.addEventListener("input", () => {
+    updatePrintCountInfo();
     if (state.sheetReady) {
       renderSheet();
     }
+  });
+
+  el.photoroomBtn.addEventListener("click", () => {
+    runPhotoRoomRemove();
   });
 
   el.refreshBtn.addEventListener("click", () => renderPassport());
@@ -649,6 +830,8 @@ function init() {
   setPreset("india");
   updateSlidersMeta();
   syncCopiesControl();
+  updatePrintCountInfo();
+  updateBgControls();
   clearSheetPreview();
   bindEvents();
 }

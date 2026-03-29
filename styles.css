@@ -139,6 +139,7 @@ body::after {
 
 .field input[type="number"],
 .field input[type="file"],
+.field input[type="password"],
 .field select,
 .field input[type="color"] {
   width: 100%;
@@ -179,6 +180,21 @@ body::after {
 
 .row.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field-note {
+  align-content: end;
+}
+
+.meta.inline {
+  margin: 0;
+  padding: 10px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(31, 49, 55, 0.18);
+  background: rgba(255, 255, 255, 0.9);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 
 hr {

@@ -11,15 +11,28 @@ Simple browser-based tool for creating print-ready passport photos.
    - `Zoom` + drag image to align face
    - `Face Clean`
    - `Brightness / Contrast / Saturation / Sharpness`
-   - `Background Color` and optional `Auto Remove BG`
-5. Set `Kitni Photo Chahiye` (preset or custom count), then click `Generate Print Sheet`.
-6. Download:
+   - `Background Color`
+   - `Remove BG Engine`
+     - `Local` for plain backgrounds
+     - `PhotoRoom API` for better cutout quality
+5. If using PhotoRoom:
+   - Select `PhotoRoom API` in `Remove BG Engine`
+   - Paste your API key
+   - Click `Run PhotoRoom Background Remove`
+6. Set print layout:
+   - `Top Margin (mm)` controls where sheet assembly starts from top
+   - `Kitni Photo Chahiye` selects requested copy count
+   - `Sheet Count` shows selected vs printable vs max fit
+7. Click `Generate Print Sheet`.
+8. Download:
    - `Download Passport PNG`
    - `Download Sheet PNG`
-7. Use `Print Sheet` for direct printing.
+9. Use `Print Sheet` for direct printing.
 
 ## Notes
 
 - Auto background removal works best on plain/studio background photos.
+- PhotoRoom endpoint used: `https://sdk.photoroom.com/v1/segment` with `x-api-key`.
+- For production use, keep API key on server-side proxy (avoid exposing key in public frontend).
 - For official use, always verify exact country guidelines before submission.
 - Default quality is optimized for `300 DPI`.
